@@ -1,23 +1,34 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <iron/utils.h>
+#include <iron/types.h>
 #include "main.h"
 #include "id_to_id.h"
 #include "id_to_id.c"
+#include "id_to_u64.h"
+#include "id_to_u64.c"
 #include "doubles.h"
 #include "doubles.c"
 
+
 id_to_id * subnodes;
 doubles * doubles_table;
-
+id_to_u64 * node_name;
 int id_counter = 0;
-object_id new_object(object_id parent, const char * name){
-  UNUSED(name);
+
+object_id new_object2(object_id parent, int_str name){
   object_id new = ++id_counter;
   id_to_id_set(subnodes, parent, new, 0);
+  id_to_u64_set(node_name, new, name);
   
   return new;
 }
+
+object_id new_object(object_id parent, const char * name){
+  return new_object2(parent, intern_string(name));
+}
+
 
 void set_double_value(object_id key, double value){
   doubles_set(doubles_table, key, value);
@@ -32,7 +43,7 @@ void set_double_value(object_id key, double value){
 }
 
 bool print_object_id(void * ptr, const char * type){
-  UNUSED(type);
+  
   if(strcmp(type, "object_id") != 0)
    return false;
  printf("%i", ((int *)ptr)[0]);
@@ -40,16 +51,67 @@ bool print_object_id(void * ptr, const char * type){
 }
 
 bool print_object_type(void * ptr, const char * type){
-UNUSED(type);
  if(strcmp(type, "type_id") != 0)
    return false;
  printf("%i", ((int *)ptr)[0]);
  return true;
 }
 
+object_id get_id_by_name(int_str str, object_id parent){
+  size_t it = 0;
+  size_t cnt;
+  size_t indexes[10];
+  
+  while((cnt = id_to_id_iter(subnodes, &parent, 1, NULL, indexes, array_count(indexes), &it))){
+    for(size_t i = 0; i < cnt; i++){
+      var id = subnodes->value[indexes[i]];
+      size_t loc_str;
+      if(id_to_u64_try_get(node_name, &id, &loc_str)){
+	if(loc_str == str)
+	  return id;
+      }else{
+	printf("warning, unable to get id name%i\n", id);
+      }
+    }
+  }
+  return 0;
+}
+
+object_id icy_parse_id(const char * cmd){
+  object_id parent = 0;
+  while(true){
+    if(cmd[0] != '/')
+      break;
+    const char * cmd2 = cmd + 1;
+    char * cmd3_1 = strchrnul(cmd2, '/');
+    char * cmd3_2 = strchrnul(cmd2, ' ');
+    char * cmd3 = MIN(cmd3_1, cmd3_2);
+    
+    size_t l = cmd3 - cmd2;
+    printf("size: %i\n", l);
+    char buf[l + 1];
+    memcpy(buf, cmd2, l);
+    buf[l] = 0;
+    int_str id = intern_string(buf);
+    printf("ID: %i %s\n", id, buf);
+    cmd = cmd3;
+    object_id cid = get_id_by_name(id, parent);
+    if(cid == 0){
+      cid = new_object2(parent, id);
+    }
+    parent = cid;
+  }
+
+  while(*cmd == ' ')
+    cmd++;
+  printf("now run the code: %s\n", cmd);
+  
+  return parent;
+}
+
 
 void metrohash64(const uint8_t * key, uint64_t len, uint32_t seed, uint8_t * out);
-size_t intern_string(const char * string);
+
 int main(int argc, char ** argv){
   for(int i = 0; i < 2; i++){
     printf("%i\n", intern_string(""));
@@ -68,6 +130,7 @@ int main(int argc, char ** argv){
   icy_table_add(print_object_id);
   icy_table_add(print_object_type);
   subnodes = id_to_id_create(NULL);
+  node_name = id_to_u64_create(NULL);
   doubles_table = doubles_create(NULL);
   ((bool*)(&subnodes->is_multi_table))[0] = true;
   var a = new_object(0, "a");
@@ -78,10 +141,13 @@ int main(int argc, char ** argv){
   set_double_value(c, 16.0);
  
   printf("%i %i %i\n", a,b,c);
+  icy_parse_id("/style/button 5.0");
   id_to_id_print(subnodes);
-  
+  id_to_u64_print(node_name);
   return 0;
 }
+
+
 
 /*
 object_id icy_parse_id(const char * cmd){
