@@ -77,6 +77,12 @@ object_id get_id_by_name(int_str str, object_id parent){
   return 0;
 }
 
+const char * try_parse_double(const char * cmd, double * out){
+  char * outp;
+  *out = strtod(cmd, &outp);
+  return outp;
+}
+
 object_id icy_parse_id(const char * cmd){
   object_id parent = 0;
   while(true){
@@ -88,12 +94,10 @@ object_id icy_parse_id(const char * cmd){
     char * cmd3 = MIN(cmd3_1, cmd3_2);
     
     size_t l = cmd3 - cmd2;
-    printf("size: %i\n", l);
     char buf[l + 1];
     memcpy(buf, cmd2, l);
     buf[l] = 0;
     int_str id = intern_string(buf);
-    printf("ID: %i %s\n", id, buf);
     cmd = cmd3;
     object_id cid = get_id_by_name(id, parent);
     if(cid == 0){
@@ -104,11 +108,38 @@ object_id icy_parse_id(const char * cmd){
 
   while(*cmd == ' ')
     cmd++;
-  printf("now run the code: %s\n", cmd);
+  while(true){
+    double dval;
+    var next = try_parse_double(cmd, &dval);
+    if(next != cmd){
+      set_double_value(parent, dval);
+      cmd = next;
+      continue;
+    }
+    break;
+  }
   
   return parent;
 }
 
+void print_scope(int parent, char * parentName){
+  size_t it = 0;
+  size_t cnt;
+  size_t indexes[10];
+  
+  while((cnt = id_to_id_iter(subnodes, &parent, 1, NULL, indexes, array_count(indexes), &it))){
+    for(size_t i = 0; i < cnt; i++){
+      var id = subnodes->value[indexes[i]];
+      size_t loc_str;
+      if(id_to_u64_try_get(node_name, &id, &loc_str)){
+	
+      }else{
+	
+      }
+    }
+  }
+  return 0;
+}
 
 void metrohash64(const uint8_t * key, uint64_t len, uint32_t seed, uint8_t * out);
 
@@ -141,11 +172,14 @@ int main(int argc, char ** argv){
   set_double_value(c, 16.0);
  
   printf("%i %i %i\n", a,b,c);
-  icy_parse_id("/style/button 5.0");
+  icy_parse_id("/style/button/width 15.0");
+  icy_parse_id("/style/button/height 30.0");
+  icy_parse_id("/style/button/name \"hello\"");
   id_to_id_print(subnodes);
   id_to_u64_print(node_name);
   return 0;
 }
+
 
 
 
