@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 #include <iron/types.h>
+#include <iron/mem.h>
 // most of this code is taken from metrohash.
 inline static uint64_t rotate_right(uint64_t v, unsigned k)
 {
@@ -109,23 +111,48 @@ void metrohash64(const uint8_t * key, uint64_t len, uint32_t seed, uint8_t * out
 #include "interned_strings.h"
 #include "interned_strings.c"
 #include <stdio.h>
-string_table * table1;
-interned_strings * table2;
+#include <iron/utils.h>
+#include "main.h"
 
-static int hash_seed = 512;
+struct _string_hash_table {
+  string_table * table1;
+  interned_strings * table2;
+};
 
-size_t intern_string(char * string){
+string_hash_table * intern_string_init(){
 
-  if(table1 == NULL){
-    // initialize the hash table.
-    table1 = string_table_create(NULL);
-    table2 = interned_strings_create(NULL);
-    ((bool *)(&table2->is_multi_table))[0] = true;
-  }
+  var table1 = string_table_create(NULL);
+  var table2 = interned_strings_create(NULL);
+  ((bool *)(&table2->is_multi_table))[0] = true;
+
+  string_hash_table t =
+    {.table1 = table1,
+     .table2 = table2
+    };
+
+  return IRON_CLONE(t);
+}
+
+  
+size_t intern_string_read(string_hash_table * t, int_str str, char * buffer, size_t buflen){
+  var table1 = t->table1;
+  char * start = (char *) (table1->data + str);
+  if(buffer == NULL)
+    return strlen(start) + 1;
+  
+  size_t copied= MIN(strlen(start) + 1, buflen);
+  memcpy(buffer, start, copied);
+  return copied;
+}
+
+int_str intern_string(string_hash_table * t, const char * string){
+
+  var table1 = t->table1;
+  var table2 = t->table2;
 
   u64 hash;
-  int slen = strlen(string);
-  metrohash64((void *)string, slen, hash_seed, (void *)&hash);
+  int slen = strlen(string) + 1;
+  hash = data_hash(string, slen);
   
   u32 indexer = ((u32) hash);
   size_t index;
@@ -138,7 +165,21 @@ size_t intern_string(char * string){
   }
 
   string_table_indexes idx = string_table_alloc_sequence(table1, (slen - 1) / 4 + 1);
-  memcpy(table1->data + idx.index, string, slen + 1);
+  memcpy(table1->data + idx.index, string, slen);
   interned_strings_set(table2, indexer, idx);
   return idx.index;
+}
+
+size_t intern_string_count(string_hash_table * s){
+  return s->table2->count;
+}
+
+size_t data_hash(const void * buffer, size_t len){
+  size_t hash;
+  metrohash64(buffer, len, 0x12513,(void *) &hash);
+  return hash;
+}
+
+size_t string_hash(const char * buffer){
+  return data_hash(buffer, strlen(buffer) + 1);
 }
