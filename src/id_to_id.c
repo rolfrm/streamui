@@ -9,24 +9,24 @@
 
 
 id_to_id * id_to_id_create(const char * optional_name){
-  static const char * const column_names[] = {(char *)"key", (char *)"value", (char *)"type"};
-  static const char * const column_types[] = {"object_id", "object_id", "type_id"};
+  static const char * const column_names[] = {(char *)"key", (char *)"value"};
+  static const char * const column_types[] = {"object_id", "object_id"};
   id_to_id * instance = calloc(sizeof(id_to_id), 1);
   instance->column_names = (char **)column_names;
   instance->column_types = (char **)column_types;
   
-  icy_table_init((icy_table * )instance, optional_name, 3, (unsigned int[]){sizeof(object_id), sizeof(object_id), sizeof(type_id)}, (char *[]){(char *)"key", (char *)"value", (char *)"type"});
+  icy_table_init((icy_table * )instance, optional_name, 2, (unsigned int[]){sizeof(object_id), sizeof(object_id)}, (char *[]){(char *)"key", (char *)"value"});
   
   return instance;
 }
 
-void id_to_id_insert(id_to_id * table, object_id * key, object_id * value, type_id * type, size_t count){
-  void * array[] = {(void* )key, (void* )value, (void* )type};
+void id_to_id_insert(id_to_id * table, object_id * key, object_id * value, size_t count){
+  void * array[] = {(void* )key, (void* )value};
   icy_table_inserts((icy_table *) table, array, count);
 }
 
-void id_to_id_set(id_to_id * table, object_id key, object_id value, type_id type){
-  void * array[] = {(void* )&key, (void* )&value, (void* )&type};
+void id_to_id_set(id_to_id * table, object_id key, object_id value){
+  void * array[] = {(void* )&key, (void* )&value};
   icy_table_inserts((icy_table *) table, array, 1);
 }
 
@@ -52,14 +52,14 @@ void id_to_id_unset(id_to_id * table, object_id key){
   id_to_id_remove(table, &key, 1);
 }
 
-bool id_to_id_try_get(id_to_id * table, object_id * key, object_id * value, type_id * type){
-  void * array[] = {(void* )key, (void* )value, (void* )type};
-  void * column_pointers[] = {(void *)table->key, (void *)table->value, (void *)table->type};
+bool id_to_id_try_get(id_to_id * table, object_id * key, object_id * value){
+  void * array[] = {(void* )key, (void* )value};
+  void * column_pointers[] = {(void *)table->key, (void *)table->value};
   size_t __index = 0;
   icy_table_finds((icy_table *) table, array[0], &__index, 1);
   if(__index == 0) return false;
-  unsigned int sizes[] = {sizeof(object_id), sizeof(object_id), sizeof(type_id)};
-  for(int i = 1; i < 3; i++){
+  unsigned int sizes[] = {sizeof(object_id), sizeof(object_id)};
+  for(int i = 1; i < 2; i++){
     if(array[i] != NULL)
       memcpy(array[i], column_pointers[i] + __index * sizes[i], sizes[i]); 
   }

@@ -7,24 +7,21 @@ typedef struct _id_to_id{
   const bool is_multi_table;
   const int column_count;
   int (*cmp) (const object_id * k1, const object_id * k2);
-  const size_t sizes[3];
+  const size_t sizes[2];
 
   object_id * key;
   object_id * value;
-  type_id * type;
   icy_mem * key_area;
   icy_mem * value_area;
-  icy_mem * type_area;
 }id_to_id;
 
 id_to_id * id_to_id_create(const char * optional_name);
-void id_to_id_set(id_to_id * table, object_id key, object_id value, type_id type);
-void id_to_id_insert(id_to_id * table, object_id * key, object_id * value, type_id * type, size_t count);
+void id_to_id_set(id_to_id * table, object_id key, object_id value);
+void id_to_id_insert(id_to_id * table, object_id * key, object_id * value, size_t count);
 void id_to_id_lookup(id_to_id * table, object_id * keys, size_t * out_indexes, size_t count);
 void id_to_id_remove(id_to_id * table, object_id * keys, size_t key_count);
 void id_to_id_clear(id_to_id * table);
 void id_to_id_unset(id_to_id * table, object_id key);
-bool id_to_id_try_get(id_to_id * table, object_id * key, object_id * value, type_id * type);
+bool id_to_id_try_get(id_to_id * table, object_id * key, object_id * value);
 void id_to_id_print(id_to_id * table);
 size_t id_to_id_iter(id_to_id * table, object_id * keys, size_t keycnt, object_id * optional_keys_out, size_t * indexes, size_t cnt, size_t * iterator);
-
