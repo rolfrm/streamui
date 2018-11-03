@@ -1,6 +1,6 @@
 
-typedef int object_id;
-typedef int type_id;
+typedef size_t object_id;
+typedef size_t type_id;
 typedef size_t int_str; 
 
 struct _string_hash_table;

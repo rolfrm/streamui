@@ -102,3 +102,32 @@ b still has only one parent, a. /c/b is not a new object.
 An object can have one value. For example, /a has the value 'a/b/', while /a/n has the value '5'. There is a table for storing numbers, a table for colors, etc. Each type has its own table where the lookup can be done.
 
 
+
+
+## 1 Nov 2018
+After trying to implement the system I have found some issues and some new ideas.
+
+An object is an object.
+so /a/b creates two objects a and b
+/c /a/b creates one object c and assigns b to it. so that a/b and c/b is the same object.
+
+
+### More abstractions
+
+It could be more efficient with another level of abstraction that maps properties onto an object, so that the code behind the objects could use a more optimized datastructure. For example if there is an object /a and it has an /a/x. X could map to an index in an array. So if there is a list of particles
+[x,y],[x,y],[x,y].
+
+and a list of objects /v1,/v2,/v3. then they can be addressed individually as such:
+/v1/x and /v1/y. Without having to allocate /v1/x, /v1/y, /v2/x, /v2/y. 
+
+How could this be achieved? Simple!
+Lets say they all exist in an array For example:
+/array/0/x
+
+/array is an array of points, thats the only real object in the system.
+there is a special type for custom object types.
+
+'/' (root) is a regular object, with normal lookup semantics
+/array/ (array) is a special array type that overloads the indexer for '\0'
+
+Anyway, every type can make an indexer that gives access to its child objects. I'll generalize this for the normal object case.
