@@ -131,3 +131,22 @@ there is a special type for custom object types.
 /array/ (array) is a special array type that overloads the indexer for '\0'
 
 Anyway, every type can make an indexer that gives access to its child objects. I'll generalize this for the normal object case.
+
+
+### More more abstractions
+
+The abstractions thing works, but it brought along a new problem. Now there are virtual objects, so objects dont always have an ID anymore. Previously if there was an object of type Double, then a table could map from object id to doubles. And this generally works, although its a bit slow. However, with the new abstractions it is also possible to have an array of doubles and those values does not need to be stored in that table. I would still like the type to be the same. This gives an essential problem.
+
+/array/5 512  // double array
+/MyWindow/Width /array/5
+
+This kind of copy operations must be possible, but they have to be complicated in the new version.
+
+Maybe the problem is just that /MyWindow/Width is an object that holds a value, but thats different from being a value by one level of indirection. So the point is to store that indirection instead of storing the value.
+
+/MyWindow/Width is an object with reference to some data
+/array/5 is an index with a reference to a value
+
+The parse method for /array/5 uses the parser for 'ArrayIndex' which only looks at type, while the parse method for /MyWindow/Width uses the parser for any object.
+
+The value is always a virtual object. A virtual can ask its parent for space for storage.
