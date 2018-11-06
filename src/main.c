@@ -58,7 +58,7 @@ struct _icy_type{
   void (* get_value)(icy_object * obj, void * out);
   
   void (* unset_value)(object_id id, void * userdata);
-  void (* print2)(icy_object *);
+  void (* print)(icy_object *);
   void (* try_parse2)(icy_object * obj, char ** str);
   bool (* sub_next)(icy_object *id, icy_iter * iter);
   void (* sub_parse)(icy_object *id, char * str, icy_object * out);
@@ -273,8 +273,8 @@ void print_object_tree(icy_object * thing){
   
   var tp = thing->type;
   printf("/");
-  if(tp->print2 != NULL)
-    tp->print2(thing);
+  if(tp->print != NULL)
+    tp->print(thing);
 }
 
 void print_object(icy_object * thing){
@@ -283,13 +283,13 @@ void print_object(icy_object * thing){
 
   printf(" ");
 
-  if(tp->print2 != NULL){
+  if(tp->print != NULL){
     icy_object sub = {
       .parent = thing,
       .userdata = NULL,
       .type = tp
     };
-    tp->print2(&sub);
+    tp->print(&sub);
   }
 }
 
@@ -441,7 +441,7 @@ void double_get_value(icy_object * id, void * out){
   memcpy(out, ptr, sizeof(double));
 }
 
-void double_print2(icy_object * id){
+void double_print(icy_object * id){
   double val;
   double_get_value(id, &val);
   printf("%f", val);
@@ -454,7 +454,7 @@ void double_load_type(icy_context * ctx){
       .userdata = ctx,
       .try_parse2 = double_try_parse2,
       .get_value = double_get_value,
-      .print2 = double_print2,
+      .print = double_print,
       .unset_value = NULL,
       .sub_parse = NULL,
       .sub_next = NULL
@@ -529,9 +529,9 @@ void object_try_parse2(icy_object * obj, char ** str){
   }  
 }
 
-void object_print2(icy_object * obj){
+void object_print(icy_object * obj){
   var ctx2 = (object_context *) obj->type->userdata;
-  ASSERT(obj->type->type_id == 1);
+  //ASSERT(obj->type->type_id == 1);
   size_t loc_str;
   if(id_to_u64_try_get(ctx->node_name, &obj->id, &loc_str)){
     size_t l = intern_string_read(ctx->stable, loc_str, NULL, 0);
@@ -539,7 +539,7 @@ void object_print2(icy_object * obj){
     intern_string_read(ctx->stable, loc_str, buf, l);
     printf("%s", buf);
   }else{
-    if(obj->userdata == NULL){
+    if(obj->userdata == NULL && obj->type->type_id == 1){
       type_id subtype;
 
       if(id_to_u64_try_get(ctx2->value_type, &obj->parent->id, &subtype)){
@@ -549,8 +549,8 @@ void object_print2(icy_object * obj){
 	  .id = 0,
 	  .parent = obj->parent
 	};
-	if(tp->print2 != NULL){
-	  tp->print2(&obj2);
+	if(tp->print != NULL){
+	  tp->print(&obj2);
 	}
       }
     }
@@ -608,7 +608,7 @@ void object_load_type(icy_context * ctx){
       .get_value = object_get_value,
       .unset_value = NULL,
       .try_parse2 = object_try_parse2,
-      .print2 = object_print2,
+      .print = object_print,
       .sub_next = object_sub_next,
       .sub_parse = object_sub_parse,
       .data = object_data
@@ -618,7 +618,7 @@ void object_load_type(icy_context * ctx){
   type_name(type.type_id, "object");
 }
 
-void type_print2(icy_object * obj){
+void type_print(icy_object * obj){
   icy_context * ctx = obj->type->userdata;;
   u64 nameid;
 
@@ -638,7 +638,7 @@ type_id type_load_type(icy_context * ctx){
       .userdata = ctx,
       .get_value = NULL,
       .unset_value = NULL,
-      .print2 = type_print2,
+      .print = type_print,
       .sub_next = NULL,
       .sub_parse = NULL
     };
@@ -682,7 +682,7 @@ type_id types_load_type(icy_context * ctx, type_id type_type_id){
       .userdata = d,
       .get_value = NULL,
       .unset_value = NULL,
-      .print2 = NULL,
+      .print = object_print,
       .sub_next = types_sub_next,
       .sub_parse = NULL
     };
@@ -717,7 +717,7 @@ icy_context * icy_context_initialize(){
       .userdata = NULL,
       .get_value = NULL,
       .unset_value = NULL,
-      .print2 = NULL,
+      .print = NULL,
       .sub_next = NULL,
       .sub_parse = NULL
     };
