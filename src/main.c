@@ -39,7 +39,7 @@ struct _icy_object{
     size_t id;
   };
 
-  icy_type * type;
+  const icy_type * type;
   icy_object * parent;
   
 };
@@ -243,29 +243,6 @@ void icy_eval(const char * cmd){
   if(cmd2 == cmd){
     printf("Unable to parse %s\n", cmd);
   }
-  
-  /*
-
-
-  while(true){
-  bool found = false;
-    for(size_t i = 0 ; i < ctx->types->count[0]; i++){
-    var tp = ctx->types->type[i];
-      if(tp.try_parse == NULL) continue;
-      char * cmd2 = (char *)cmd;
-      tp.try_parse(id, &cmd2, tp.userdata);
-      if(cmd2 != cmd){
-	cmd = cmd2;
-	id_to_u64_set(ctx->object_type, id, tp.type_id);
-	found = true;
-	break;
-      }
-    }
-    if(!found){
-      id_to_u64_unset(ctx->object_type, id);
-    }
-    break;	
-    }*/
 }
 
 
@@ -278,7 +255,7 @@ void icy_query(const char * cmd, void * outdata){
     if(tp->get_value != NULL){
       tp->get_value(&obj, outdata);
     }else{
-      printf("Unable to print type of '%s'", orig);
+      printf("Unable to print type of '%s'\n", orig);
     }
   }else{
     printf("Unable to parse %s\n", orig);
@@ -289,14 +266,29 @@ void icy_query_object(const char * cmd, icy_object * obj){
   icy_parse_id2(NULL, &cmd, obj);
 }
 
-void print_object(icy_object * thing){
+void print_object_tree(icy_object * thing){
   if(thing->parent == NULL) return;
-  print_object(thing->parent);
+  print_object_tree(thing->parent);
   
   var tp = thing->type;
   printf("/");
-  if(tp->print2 != NULL){
+  if(tp->print2 != NULL)
     tp->print2(thing);
+}
+
+void print_object(icy_object * thing){
+  print_object_tree(thing);
+  var tp = thing->type;
+
+  printf(" ");
+
+  if(tp->print2 != NULL){
+    icy_object sub = {
+      .parent = thing,
+      .userdata = NULL,
+      .type = tp
+    };
+    tp->print2(&sub);
   }
 }
 
@@ -398,16 +390,19 @@ void test_eval(){
   icy_eval("/style/button/height 30.0");
   icy_eval("/style/button/name 1337");
   icy_eval("/style/button/width 35.0");
-  return;
+  
   //id_to_id_print(subnodes);
   //id_to_u64_print(node_name);
 
   icy_eval("/button1 /style/button");
-  icy_eval("/button1/width 20");
+  icy_eval("/button1/width 15");
+  icy_eval("/button1/width2/asd 1");
 
   double height;
-  icy_query("/button1/height", &height);
+  icy_query("/button1/width", &height);
+  printf("Height: %f\n", height);
   ASSERT(height == 15.0);
+  return;
   
   icy_eval("/button1/height 20");
 
@@ -440,7 +435,10 @@ void double_try_parse2(icy_object * obj, char ** str){
 }
 
 void double_get_value(icy_object * id, void * out){
-  UNUSED(id); UNUSED(out);
+  printf("get double value..\n");
+  var parent = id->parent;
+  void * ptr = parent->type->data(parent, NULL);
+  memcpy(out, ptr, sizeof(double));
 }
 
 void double_load_type(icy_context * ctx){
@@ -461,12 +459,14 @@ void double_load_type(icy_context * ctx){
 
 typedef struct{
   icy_context * ctx;
-}icy_object_type;
+  size_t garbage;
+  id_to_u64 * value_type;
+}object_context;
 
 bool object_sub_next(icy_object * id, icy_iter * iter){
 
   object_id id2 = id->id;
-  var ctx = (icy_context *) id->type->userdata;
+  printf("ID%i\n", id2);
   size_t index;
   size_t c = id_to_id_iter(ctx->subnodes, &id2, 1, NULL, &index, 1, &iter->number);
   if(c == 0) return false;
@@ -485,8 +485,7 @@ bool object_sub_next(icy_object * id, icy_iter * iter){
 
 void object_sub_parse(icy_object *id, char * str, icy_object * out){
   object_id id2 = id->id;
-  var ctx = (icy_context *) id->type->userdata;
-
+  
   var stable = ctx->stable;
   int_str idstr = intern_string(stable, str);
   object_id cid = get_id_by_name(idstr, id2);
@@ -501,6 +500,7 @@ void object_sub_parse(icy_object *id, char * str, icy_object * out){
 
 
 void object_try_parse2(icy_object * obj, char ** str){
+  var ctx2 = (object_context *) obj->type->userdata;
   printf("parsing sub object..\n");
   if(obj->id == 0) return;
   icy_object sub = {
@@ -515,7 +515,7 @@ void object_try_parse2(icy_object * obj, char ** str){
     sub.type = tp;
     tp->try_parse2(&sub, (char **)&cmd);
     if(cmd2 != cmd){
-      id_to_u64_set(ctx->object_type, obj->id, tp->type_id);
+      id_to_u64_set(ctx2->value_type, obj->id, tp->type_id);
       *str = cmd;
       break;
     }
@@ -523,6 +523,7 @@ void object_try_parse2(icy_object * obj, char ** str){
 }
 
 void object_print2(icy_object * obj){
+  var ctx2 = (object_context *) obj->type->userdata;
   size_t loc_str;
   if(id_to_u64_try_get(ctx->node_name, &obj->id, &loc_str)){
     size_t l = intern_string_read(ctx->stable, loc_str, NULL, 0);
@@ -530,15 +531,35 @@ void object_print2(icy_object * obj){
     intern_string_read(ctx->stable, loc_str, buf, l);
     printf("%s", buf);
   }else{
-    printf("Object");
+    if(obj->userdata == NULL){
+      printf("Happens.. %i\n", obj->id);
+      type_id subtype;
+      if(id_to_u64_try_get(ctx2->value_type, &obj->parent->id, &subtype)){
+	var tp = ctx->types->type + subtype;
+	icy_object obj2 = {
+	  .type = tp,
+	  .id = 0,
+	  .parent = obj->parent
+	};
+	if(tp->print2 != NULL){
+	  tp->print2(&obj2);
+	}
+      }
+    }
+
   }
 }
 
 void * object_data(icy_object * obj, size_t * size){
   array_index index = {0};
-  size_t new_count = (*size - 1) / 4 + 1;
+  size_t new_count;
+  
+  if(size != NULL)
+    new_count = (*size - 1) / 4 + 1;
+  
   if(array_alloc_try_get(ctx->object_data, &obj->id, &index)){
-    if(index.count != new_count){
+    
+    if(size != NULL && index.count != new_count){
       
       array_table_remove_sequence(ctx->data_table, &index);
     }else{
@@ -546,19 +567,39 @@ void * object_data(icy_object * obj, size_t * size){
       return ctx->data_table->data + index.index;
     }
   }
+  if(size == NULL) return NULL;
   printf("alloc array %i..\n", obj->id);
   index = array_table_alloc_sequence(ctx->data_table, new_count);
   array_alloc_set(ctx->object_data, obj->id, index);
   return ctx->data_table->data + index.index;
 }
 
-void object_load_type(icy_context * ctx){
+void object_get_value(icy_object * obj, void * out){
+  var ctx2 = (object_context *) obj->type->userdata;
+  type_id type = 0;
+  if(id_to_u64_try_get(ctx2->value_type, &obj->id, &type) == false)
+    return;
+  var tp = ctx->types->type + type;
+  if(tp->get_value != NULL){
+    icy_object obj2 = {.parent = obj,
+		       .type = tp
+    };
+    tp->get_value(&obj2, out);
+  }
+}
 
+void object_load_type(icy_context * ctx){
+  object_context ctx2 = {
+    .ctx = ctx,
+    .garbage = 0xFF112233,
+    .value_type = id_to_u64_create(NULL)
+  };
   printf("load ctx: %i\n", ctx);
+
   icy_type type =
     {
-      .userdata = ctx,
-      .get_value = NULL,
+      .userdata = IRON_CLONE(&ctx2),
+      .get_value = object_get_value,
       .unset_value = NULL,
       .try_parse2 = object_try_parse2,
       .print2 = object_print2,
