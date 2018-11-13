@@ -1,3 +1,10 @@
+## TO DO
+ - icy_eval/icy_parse_id2 has some bad behavior when generating temporary object trees, since parents might be used for data that is not available.
+ - read only access to value objects. Testing for this behavior currently.
+ - Consider if bytecode is a good approach for driving events. Consider how the datalog event should be propagated to the listeners
+ - Consider that it should be possible to efficiently store the entire scope as a file and load it later.
+
+
 ## Stream UI
 
 a generic format for streaming uis.
@@ -150,3 +157,67 @@ Maybe the problem is just that /MyWindow/Width is an object that holds a value, 
 The parse method for /array/5 uses the parser for 'ArrayIndex' which only looks at type, while the parse method for /MyWindow/Width uses the parser for any object.
 
 The value is always a virtual object. A virtual can ask its parent for space for storage.
+
+
+### Bytecode format.
+
+To efficiently represent the events in a binary format, its better to have a bytecode format than the string based format.
+
+Everything inside '//' represent a scope. Each scope has a unique ID within its parent. And the parent scope decides on its own, depending on type how that is implemented. In the initial version, every scope has 4 bytes of storage and ends with a '0'
+
+The final scope is callable with a set of arguments, for example
+
+/MyWindow/Width 512
+
+if the type of '/MyWindow/Width' is not known, it must make a guess. It does this by running through all the known parsers.
+It is possible to let the type of objects be known by setting
+/MyWindow/Width/value_type /types/int
+
+Once the type of the argument is known the type with be written into the bytecode stream and the type will encode the value into the bytecode stream.
+
+So /MyWindow/Width 512 would turn into
+[[Id of MyWindow][Id of Width inside MyWindow]0[type of double][8 bytes of double value]
+So this one line is encoded into
+4 + 4 + 4 + 4 + 8 = 24 bytes of data.
+
+The first part is also generally useful as a method to look up elements from the byte code.
+
+The bytecode format has a flaw in the sense that refering to the name of a thing can be done at evaluation time, whereas the ids themselves might change.
+
+This could be a problem when an object changes. For example:
+/MyWindow/Width 512   // Object #1/#2: 512
+del /MyWindow/Width   // delete #2
+/MyWindow/Width 256   // Object #1/#3: 256
+/MyWindow/Width 512   // Object #1/#3: 512
+
+If the bytecode '#1/#2: 512' is stored and later executed, an error will occur because #2 no longer exists. However, one could question why that would be needed.
+
+### Object copies
+
+It is up to the object itself to handle references to other objects. 
+
+An object can be created using another object as a basis:
+/MyWindowCopy /Default/Window
+
+This creates a new object that is linked to the base. If any changes happens on the base object those will propagate to the copy. If any changes happens on the copy specifically, they will override changes happening on the base object.
+
+This behavior can be changed by specifying the value handler type  to be different:
+/MyWindowCopy/type /type/NodeReference
+/MyWindowCopy /Default/Window
+
+In this case since '/type' was specified, the behavior can change.
+
+
+### Callable nodes
+
+cd is a callable node. cd is defined in the global scope.
+
+'cd /home/..'.
+
+Likewise '..' and '.' could be things defined in the global scope, so that
+cd './...'. actually makes sense without anything having to be hardcoded.
+
+### Actions on the bytecode stream
+Since everything that can be executed has a bytecode representation, the names of nodes also has to be registered here.
+So when something is evaluated, strings are being interned and the internation has to be executed before the action itself.
+

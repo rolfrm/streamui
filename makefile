@@ -1,5 +1,5 @@
-OPT = -g3 -Og
-LIB_SOURCES1 = main.c strings.c
+OPT = -g3 -O0
+LIB_SOURCES1 = main.c strings.c test.c
 
 LIB_SOURCES = $(addprefix src/, $(LIB_SOURCES1))
 CC = gcc

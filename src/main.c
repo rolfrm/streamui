@@ -13,70 +13,26 @@
 #include <iron/mem.h>
 #include "main.h"
 #include "id_to_id.h"
-#include "id_to_id.c"
 #include "id_to_u64.h"
-#include "id_to_u64.c"
 #include "u64_to_u64.h"
-#include "u64_to_u64.c"
 
 #include "doubles.h"
-#include "doubles.c"
 
 #include "array_table.h"
-#include "array_table.c"
-typedef array_table_indexes array_index;
+
 #include "array_alloc.h"
+
+#include "id_to_id.c"
+#include "id_to_u64.c"
+#include "u64_to_u64.c"
 #include "array_alloc.c"
-
-struct _icy_type;
-typedef struct _icy_type icy_type;
-typedef struct _icy_object icy_object;
-
-// temporary data structure used for holding objects on the stack.
-struct _icy_object{
-  union
-  {
-    void * userdata;
-    size_t id;
-  };
-
-  const icy_type * type;
-  icy_object * parent;
-  
-};
-
-// temporary data structure for iterating the children of an object.
-typedef struct{
-  union {
-    void * localdata;
-    size_t number;
-  };
-  icy_object object;
-}icy_iter;
-
-// Data structure used to hold information about a type.
-// Type is the type of an object and it defines how to work with the data.
-struct _icy_type{
-  // custom data for the type to use.
-  void * userdata;
-  
-  // write the value to the out pointer. Important for queries.
-  void (* get_value)(icy_object * obj, void * out);
-
-  void (* print)(icy_object *);
-  void (* try_parse)(icy_object * obj, char ** str);
-  bool (* sub_next)(icy_object *id, icy_iter * iter);
-  void (* sub_parse)(icy_object *id, char * str, icy_object * out);
-  void * (* data)(icy_object * parent, size_t * required_size);
-  type_id type_id;
-};
-
-
+#include "doubles.c"
+#include "array_table.c"
 
 #include "icy_types.h"
 #include "icy_types.c"
 
-typedef struct{
+struct _icy_context {
   // map node to sub node.
   id_to_id * subnodes;
   // map node to style / inheritor.
@@ -95,7 +51,7 @@ typedef struct{
   u64_to_u64 * type_name;
   array_table * data_table;
   array_alloc * object_data;
-}icy_context;
+};
 
 icy_context * ctx;
 
@@ -125,7 +81,7 @@ bool print_object_type(void * ptr, const char * type){
 
 object_id get_id_by_name(int_str str, object_id parent){
   size_t it = 0;
-  size_t cnt;
+  size_t cnt = 0;
   size_t indexes[10];
   var subnodes = ctx->subnodes;
   var node_name = ctx->node_name;
@@ -137,7 +93,8 @@ object_id get_id_by_name(int_str str, object_id parent){
 	if(loc_str == str)
 	  return id;
       }else{
-	printf("warning, unable to get id name%i\n", id);
+	//printf("warning, unable to get id name%i %i\n", id, parent);
+	//ASSERT(false);
       }
     }
   }
@@ -154,7 +111,6 @@ void icy_parse_id2(icy_object * root, const char ** str, icy_object * out){
   const char * cmd = *str;
   *out = *root;
   while(true){
-    printf("OUT type: %i %i %i\n", out->type->type_id, obj.type, ctx->object_type_id);
     if(out->type->sub_parse == NULL)
       break;
     if(cmd[0] != '/')
@@ -181,6 +137,51 @@ void icy_parse_id3(icy_object * root, const char * cmd, icy_object * obj){
   icy_parse_id2(root, &cmd, obj);
 }
 
+void icy_bytecode(const char * cmd, void ** bytecode, size_t * bufsize){
+  icy_object obj = {0};
+  obj.type = icy_get_type(ctx->object_type_id);
+  size_t buffer_offset = 0;
+
+  void pushv(size_t v){
+    if(buffer_offset + sizeof(v) >= *bufsize){
+      *bufsize = 2 * *bufsize + sizeof(v);
+      *bytecode = realloc(*bytecode, *bufsize);
+    }
+    memcpy(*bytecode + buffer_offset, &v, sizeof(v));
+    buffer_offset += sizeof(v);
+
+  }
+  
+  void proc(icy_object * out, const char * cmd){
+    
+    if(cmd[0] != '/'){
+      pushv(0);
+      out->type->sub_encode(out, *bytecode + buffer_offset, *bufsize - buffer_offset);
+      // Now encode the value.
+      return;
+    }
+    const char * cmd2 = cmd + 1;
+    char * cmd3_1 = strchrnul(cmd2, '/');
+    char * cmd3_2 = strchrnul(cmd2, ' ');
+    char * cmd3 = MIN(cmd3_1, cmd3_2);
+    size_t l = cmd3 - cmd2;
+    char buf[l + 1];
+    memcpy(buf, cmd2, l);
+    buf[l] = 0;
+    ASSERT(out->type->sub_parse2 != NULL);
+    object_id i = out->type->sub_parse2(&obj, buf);
+    pushv(i);
+    icy_object child = {0 };
+    ASSERT(out->type->sub_get != NULL);
+    out->type->sub_get(out, i, &child);
+    proc(&child, cmd3);
+    
+  }
+  proc(&obj, cmd);
+
+  
+}
+
 void icy_eval(const char * cmd){
 
   icy_object out;
@@ -194,10 +195,10 @@ void icy_eval(const char * cmd){
   cmd = cmd2;
   while(*cmd == ' ')
     cmd++;
-
+  if(*cmd == 0) return;
   var tp = out.type;
   cmd2 = cmd;
-  printf("Got thing of type: %i\n", tp->type_id);
+  //printf("Got thing of type: %i\n", tp->type_id);
   if(tp->try_parse != NULL)
     tp->try_parse(&out, (char **)&cmd);
   if(cmd2 == cmd){
@@ -265,7 +266,7 @@ void print_scope3(icy_object * parent){
   }
 }
 
-void print_scope2(){
+void print_scope(){
   icy_object obj = {0};
   obj.type = icy_get_type(ctx->object_type_id);
    
@@ -275,93 +276,6 @@ void print_scope2(){
 void type_name(type_id type, const char * name){
   var istr = intern_string(ctx->stable, name);
   u64_to_u64_set(ctx->type_name, type, istr);
-}
-
-void test_string_intern(){
-
-  string_hash_table * stable = intern_string_init();
-  srand(timestamp());
-  int cnt = 100;
-  u32 * rands = alloc0(cnt * sizeof(rands[0]));
-  int_str * ints = alloc0(cnt * sizeof(ints[0]));
-  for(int i = 0; i < cnt; i++){
-    rands[i]= (u32)rand();
-  }
-  for(int i = 0; i < cnt; i++){
-    u32 _rand = rands[i];
-    int chars = (rands[i] % 101) + 1;
-    char buf[chars];
-    for(int i = 0; i < chars; i++){
-      buf[i] = (char)((_rand + i* 9377) & 0xFF);
-      if(buf[i] == 0)
-	buf[i] = 32;
-    }
-    buf[chars - 1] = 0;
-    ints[i] = intern_string(stable, buf);
-    u32 int2 = intern_string(stable, buf);
-    ASSERT(ints[i] == int2);
-    size_t l = intern_string_read(stable, int2, NULL, 0);
-    char buf2[l];
-    intern_string_read(stable, int2, buf2, l);
-    ASSERT(strcmp(buf2, buf) == 0);
-  }
-  for(int i = 0; i < cnt; i++){
-    u32 _rand = rands[i];
-    int chars = (rands[i] % 101) + 1;
-    char buf[chars];
-    for(int i = 0; i < chars; i++){
-      buf[i] = (char)((_rand + i* 9377) & 0xFF);
-      if(buf[i] == 0)
-	buf[i] = 32;
-    }
-    buf[chars - 1] = 0;
-    int_str i2 = intern_string(stable, buf);
-    ASSERT(i2 == ints[i]);
-  }
-}
-
-void test_hashing(){
-  var h1 = string_hash("");
-  var h2 = string_hash("asd");
-  var h3 = string_hash("asd123321");
-  var h12 = string_hash("");
-  var h22 = string_hash("asd");
-  var h32 = string_hash("asd123321");
-  //printf("%p %p %p %p %p %p\n", h1, h2, h3, h12, h22, h32);
-  ASSERT(h1 == h12);
-  ASSERT(h2 == h22);
-  ASSERT(h3 == h32);
-}
-
-void test_eval(){
-
-  icy_eval("/style/array");
-  icy_object obj;
-  icy_query_object("/style/array", &obj);  
-  
-  icy_eval("/style/button/width 15.0");
-
-  icy_eval("/style/button/height 30.0");
-  icy_eval("/style/button/name 1337");
-  icy_eval("/style/button/width 35.0");
-  
-  //id_to_id_print(subnodes);
-  //id_to_u64_print(node_name);
-
-  icy_eval("/button1 /style/button");
-  icy_eval("/button1/width 15");
-  icy_eval("/button1/width2/asd 1");
-
-  double height;
-  icy_query("/button1/width", &height);
-  printf("Height: %f\n", height);
-  ASSERT(height == 15.0);
-  
-  icy_eval("/button1/height 20");
-
-  icy_query("/button1/height", &height);
-  ASSERT(height == 20.0);
-  
 }
 
 void icy_context_add_type(icy_context * ctx, icy_type * type){
@@ -381,7 +295,7 @@ void double_try_parse(icy_object * obj, char ** str){
     if(parent->type->data == NULL){
       ERROR("data() cannot be NULL\n");
     }
-    printf("setting double value to %f\n", value);
+    //printf("setting double value to %f\n", value);
     double * val = parent->type->data(parent, &size);
     *val = value;
   }
@@ -441,22 +355,42 @@ bool object_sub_next(icy_object * id, icy_iter * iter){
 }
 
 void object_sub_parse(icy_object *id, char * str, icy_object * out){
+  static bool object_sub_parse_create = true;
   object_id parent = id->id;
   
   var stable = ctx->stable;
   int_str idstr = intern_string(stable, str);
   object_id cid = get_id_by_name(idstr, parent);
-  bool create = true;
+  
   if(cid == 0){
-    if(create){
-      // create a new object
-      
+    var ctx2 = (object_context*) id->type->userdata;
+    type_id subtype;
+    id_to_u64_try_get(ctx2->value_type, &id->id, &subtype);
+    if(subtype == id->type->type_id){
+      size_t s = sizeof(u64);
+      u64 * subobj_id = id->type->data(id,&s);
+      if(*subobj_id != 0){
+	icy_object subobj2 = {
+	  .parent = id,
+	  .type = id->type,
+	  .id = *subobj_id
+	};
+	printf("Recurse!\n");
+	var prev = object_sub_parse_create;
+	object_sub_parse_create = false;
+	out->id = 0;
+	object_sub_parse(&subobj2, str, out);
+	object_sub_parse_create = prev;
+	cid = out->id;
+	printf("Recurse found %i\n",cid);
+      }
+    }
+    if(cid == 0){
       var name = intern_string(ctx->stable, str);
       object_id new = ++ctx->id_counter;
       ASSERT(parent != new);
       id_to_id_set(ctx->subnodes, parent, new);
       id_to_u64_set(ctx->node_name, new, name);
-      
       cid = new;
     }
   }
@@ -464,10 +398,45 @@ void object_sub_parse(icy_object *id, char * str, icy_object * out){
   out->type = id->type;
 }
 
+object_id object_sub_parse2(icy_object *id, char * str){
+  object_id parent = id->id;
+  if(strcmp(str, "type") == 0){
+    return -1;
+  }
+  var stable = ctx->stable;
+  int_str idstr = intern_string(stable, str);
+  object_id cid = get_id_by_name(idstr, parent);
+  if(cid == 0){
+    var name = intern_string(ctx->stable, str);
+    object_id new = ++ctx->id_counter;
+    ASSERT(parent != new);
+    id_to_id_set(ctx->subnodes, parent, new);
+    id_to_u64_set(ctx->node_name, new, name);
+    cid = new;
+  }
+  return (object_id)cid;
+}
+
+
+void object_sub_get(icy_object * obj, object_id id, icy_object * out){
+  if(id == (object_id)-1){
+    return; //special type case.
+  }
+
+  type_id obj_type = {0};
+  if(id_to_u64_try_get(ctx->object_type, &id, &obj_type) == false){
+    obj_type = obj->type->type_id;
+  }
+  
+  out->id = id;
+  out->type = ctx->types->type + obj_type;
+  out->parent = obj->parent;
+}
+
+
 
 void object_try_parse(icy_object * obj, char ** str){
   var ctx2 = (object_context *) obj->type->userdata;
-  printf("parsing sub object..\n");
   if(obj->id == 0) return;
   icy_object sub = {
     .parent = obj,
@@ -483,9 +452,24 @@ void object_try_parse(icy_object * obj, char ** str){
     if(cmd2 != cmd){
       id_to_u64_set(ctx2->value_type, obj->id, tp->type_id);
       *str = cmd;
-      break;
+      return;
     }
-  }  
+  }
+
+  icy_object out;
+  icy_parse_id2(NULL, (const char **) &cmd, &out);
+  if(*cmd != *cmd2){
+     if(out.type == obj->type){
+      id_to_u64_set(ctx2->value_type, obj->id, out.type->type_id);
+      size_t size = sizeof(obj->id);
+      void * p = obj->type->data(obj, &size);
+      memcpy(p, &out.id, size);
+    }else{
+      ERROR("Unable to translate type");
+    }
+    return;
+  }
+  
 }
 
 void object_print(icy_object * obj){
@@ -508,8 +492,10 @@ void object_print(icy_object * obj){
 	  .id = 0,
 	  .parent = obj->parent
 	};
-	if(tp->print != NULL){
+	if(tp->print != NULL && tp != obj->type){
 	  tp->print(&obj2);
+	}else{
+	  printf("[object]");
 	}
       }
     }
@@ -568,6 +554,8 @@ void object_load_type(icy_context * ctx){
       .print = object_print,
       .sub_next = object_sub_next,
       .sub_parse = object_sub_parse,
+      .sub_parse2 = object_sub_parse2,
+      .sub_get = object_sub_get,
       .data = object_data
     };
   icy_context_add_type(ctx, &type);
@@ -694,52 +682,102 @@ icy_context * icy_context_initialize(){
   return ctx;
 }
 
+void eval_by_line(FILE * stream){
+  size_t n = 16;
+  char * lineptr = alloc0(n);
+  memset(lineptr, 0, n);
+  ssize_t linebuffer_size = 4;
+  char * linebuffer = alloc0(linebuffer_size);
+  int bufferoffset = 0;
+  bool inquote = false;
+  ssize_t read;
+  printf("Read from stream %i\n", stream);
+  while((read = getline(&lineptr, &n, stream)) > 0){
+    //printf("Line %i: %s", n, lineptr);
+    if(linebuffer_size < bufferoffset + read){
+      linebuffer_size = bufferoffset + read;
+      linebuffer = realloc(linebuffer, linebuffer_size);
+    }
+    memcpy(linebuffer + bufferoffset, lineptr, read);
+    bufferoffset += read;
+    for(ssize_t i = 0; i < read; i++){
+      if(lineptr[i] == '\"' && (i + 1) < read){
+	if(lineptr[i + 1] == '\"'){
+	  i++;
+	}else{
+	  inquote = !inquote;
+	}
+      }
+    }
+    if(!inquote){
+      linebuffer[bufferoffset] = 0;
+      if(bufferoffset >0){
+	if(linebuffer[bufferoffset - 1] == '\n')
+	  linebuffer[bufferoffset - 1] = 0;
+      }
+      printf("buffer: %s\n", linebuffer);
+      icy_eval(linebuffer);
+      bufferoffset = 0;
+    }else{
+      
+    }
+    
+  }
+  dealloc(lineptr);
+  dealloc(linebuffer);
+}
+
 int main(int argc, char ** argv){
-  for(int i = 0; i < 1; i++){
-    int fk = 0;//fork();
-    if (fk == 0) {
-      icy_context_make_current(icy_context_initialize());
-      //test_hashing();
-      //test_string_intern();
+  bool test = false;
+  bool repl = false;
+  bool help = false;
+  char * path = NULL;
+  for(int i = 0; i < argc; i++){
 
-      test_eval();
-      print_scope2();
-      printf("done test\n");
-      return 0;
-    } else {
-
-      wait(&fk);
-      printf("Done\n");
-      if(fk != 0){
-	printf("TEST FAILED %i :(\n", fk);
-	return 0;
+    bool isarg(const char * arg){
+      return strcmp(argv[i], arg) == 0;
+    }
+    
+    if(isarg("--test"))
+      test = true;
+    else if (isarg("--repl"))
+      repl = true;
+    else if (isarg("--help"))
+      help = true;
+    else if(isarg("--file")){
+      i++;
+      if(i < argc){
+	path = argv[i];
       }
     }
   }
 
-  UNUSED(argc);
-  UNUSED(argv);
-  icy_table_add(print_object_id);
-  icy_table_add(print_object_type);
-  icy_context_make_current(icy_context_initialize());
-
-  icy_eval("/style/button/width 15.0");
-  icy_eval("/style/button/height 30.0");
-  icy_eval("/style/button/name 1337");
-
-  icy_eval("/button1 /style/button");
-  icy_eval("/button1/width 20");
-  icy_eval("/button1/height 20");
-  
- 
-  var node_name = ctx->node_name;
-  for(size_t i = 0; i < node_name->count; i++){
-    int_str s = node_name->value[i + 1];
-    size_t l = intern_string_read(ctx->stable, s, NULL, 0);
-    char buf[l];
-    intern_string_read(ctx->stable, s, buf, l);
-    
-    printf("Name: %i %s\n", s, buf);
+  if(help){
+    printf("--test - run tests\n--help  -  show this help\n");
+    return 0;
   }
+  icy_context_make_current(icy_context_initialize());
+  
+  if(path != NULL){
+    var f = fopen(path, "r");
+    if(f == NULL){
+      ERROR("could not read file");
+    }
+    eval_by_line(f);
+    fclose(f);
+  }
+  
+  if(test){
+    run_tests();
+    return 0;
+  }
+  if(repl){
+    eval_by_line(stdin);
+    printf("Implement repl\n");
+    return 0;
+  }
+  
   return 0;
 }
+
+
