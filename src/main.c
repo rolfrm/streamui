@@ -101,36 +101,44 @@ object_id get_id_by_name(int_str str, object_id parent){
   return 0;
 }
 
+void icy_parse(icy_object * obj, const char ** str, icy_object * out){
+
+  if(obj->type->sub_parse == NULL)
+    return;
+  const char * cmd = *str;
+  const char * cmd2 = cmd + 1;
+  char * cmd3_1 = strchrnul(cmd2, '/');
+  char * cmd3_2 = strchrnul(cmd2, ' ');
+  char * cmd3 = MIN(cmd3_1, cmd3_2);
+
+  size_t l = cmd3 - cmd2;
+  if(l == 0) return;
+  printf("Len: %i\n", l);
+  char buf[l + 1];
+  memcpy(buf, cmd2, l);
+  buf[l] = 0;
+  obj->type->sub_parse(obj, buf, out);
+  *str = cmd3;
+}
+
 void icy_parse_id2(icy_object * root, const char ** str, icy_object * out){
   icy_object obj = {0};
   if(root == NULL){
     obj.type = icy_get_type(ctx->object_type_id);
     root = &obj;
   }
-  
-  const char * cmd = *str;
-  *out = *root;
+  const char * bcmd = *str;
   while(true){
-    if(out->type->sub_parse == NULL)
-      break;
-    if(cmd[0] != '/')
-      break;
-    const char * cmd2 = cmd + 1;
-    char * cmd3_1 = strchrnul(cmd2, '/');
-    char * cmd3_2 = strchrnul(cmd2, ' ');
-    char * cmd3 = MIN(cmd3_1, cmd3_2);
-    
-    size_t l = cmd3 - cmd2;
-    char buf[l + 1];
-    memcpy(buf, cmd2, l);
-    buf[l] = 0;
-    if(out->type->sub_parse != NULL)
-      out->type->sub_parse(root, buf, out);
-    else break;
-    root = out;
-    cmd = cmd3;
+    const char * cmd = bcmd;
+    icy_object obj2;
+    icy_parse(&obj, &cmd, &obj2);
+    if(cmd == bcmd){
+      return;
+    }
+    bcmd = cmd;
+    *out = obj2;
   }
-  *str = cmd;
+  *str = bcmd;
 }
 
 void icy_parse_id3(icy_object * root, const char * cmd, icy_object * obj){
