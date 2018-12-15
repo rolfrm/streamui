@@ -72,5 +72,4 @@ void id_to_id_print(id_to_id * table){
 
 size_t id_to_id_iter(id_to_id * table, object_id * keys, size_t keycnt, object_id * optional_keys_out, size_t * indexes, size_t cnt, size_t * iterator){
   return icy_table_iter((icy_table *) table, keys, keycnt, optional_keys_out, indexes, cnt, iterator);
-
 }

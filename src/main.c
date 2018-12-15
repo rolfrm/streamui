@@ -102,10 +102,11 @@ object_id get_id_by_name(int_str str, object_id parent){
 }
 
 void icy_parse(icy_object * obj, const char ** str, icy_object * out){
-
   if(obj->type->sub_parse == NULL)
     return;
+
   const char * cmd = *str;
+  if(cmd[0] == ' ' || cmd[0] == 0) return;
   const char * cmd2 = cmd + 1;
   char * cmd3_1 = strchrnul(cmd2, '/');
   char * cmd3_2 = strchrnul(cmd2, ' ');
@@ -113,36 +114,12 @@ void icy_parse(icy_object * obj, const char ** str, icy_object * out){
 
   size_t l = cmd3 - cmd2;
   if(l == 0) return;
-  printf("Len: %i\n", l);
   char buf[l + 1];
   memcpy(buf, cmd2, l);
   buf[l] = 0;
+
   obj->type->sub_parse(obj, buf, out);
   *str = cmd3;
-}
-
-void icy_parse_id2(icy_object * root, const char ** str, icy_object * out){
-  icy_object obj = {0};
-  if(root == NULL){
-    obj.type = icy_get_type(ctx->object_type_id);
-    root = &obj;
-  }
-  const char * bcmd = *str;
-  while(true){
-    const char * cmd = bcmd;
-    icy_object obj2;
-    icy_parse(&obj, &cmd, &obj2);
-    if(cmd == bcmd){
-      return;
-    }
-    bcmd = cmd;
-    *out = obj2;
-  }
-  *str = bcmd;
-}
-
-void icy_parse_id3(icy_object * root, const char * cmd, icy_object * obj){
-  icy_parse_id2(root, &cmd, obj);
 }
 
 void icy_bytecode(const char * cmd, void ** bytecode, size_t * bufsize){
@@ -185,54 +162,65 @@ void icy_bytecode(const char * cmd, void ** bytecode, size_t * bufsize){
     proc(&child, cmd3);
     
   }
-  proc(&obj, cmd);
+  proc(&obj, cmd);  
+}
 
-  
+void icy_obj_action2(icy_object *obj, const char * cmd, void (* f)(icy_object * obj,const char * restcmd, void * userdata), void * userdata){
+  const char * cmd2 = cmd;
+  icy_object obj2;
+  icy_parse(obj, &cmd, &obj2);
+  if(cmd == cmd2){
+    f(obj, cmd, userdata);
+    return;
+  }
+  icy_obj_action2(&obj2, cmd, f, userdata);
+}
+
+
+void icy_obj_action(const char * cmd, void (* f)(icy_object * obj, const char * restcmd, void * userdata), void * userdata){
+  icy_object obj;
+  obj.id = 0;
+  obj.type = icy_get_type(ctx->object_type_id);
+  obj.parent = NULL;
+  icy_obj_action2(&obj, cmd, f, userdata);
+}
+
+void icy_eval_final(icy_object * obj, const char * cmd, void * _){
+  UNUSED(_);
+  var tp = obj->type;
+  if(tp->try_parse != NULL)
+    tp->try_parse(obj, (char **)&cmd);
 }
 
 void icy_eval(const char * cmd){
-
-  icy_object out;
-  
-  const char * cmd2 = cmd;
-  icy_parse_id2(NULL, &cmd2, &out);
-  if(cmd2 == cmd){
-    printf("Unable to find object\n");
-    return;
-  }
-  cmd = cmd2;
-  while(*cmd == ' ')
-    cmd++;
-  if(*cmd == 0) return;
-  var tp = out.type;
-  cmd2 = cmd;
-  //printf("Got thing of type: %i\n", tp->type_id);
-  if(tp->try_parse != NULL)
-    tp->try_parse(&out, (char **)&cmd);
-  if(cmd2 == cmd){
-    printf("Unable to parse %s\n", cmd);
-  }
+  icy_obj_action(cmd, icy_eval_final, NULL);
 }
 
+void icy_query2(icy_object * obj, const char * cmd, void * outdata){
+  const char * orig = cmd;
+  icy_object obj2 = {0};
+  icy_parse(obj, &cmd, &obj2);
+  if(cmd != orig){
+    icy_query2(&obj2, cmd, outdata);
+  }else{
+    var tp = obj->type;
+    if(tp->get_value != NULL){
+      type_print(obj);
+      printf("getting value! \n");
+      
+      tp->get_value(obj, outdata);
+      
+    }else{
+      printf("obj is not something that can be read\n", orig);
+    }
+  }
+}
 
 void icy_query(const char * cmd, void * outdata){
-  const char * orig = cmd;
-  icy_object obj;
-  icy_parse_id2(NULL, &cmd, &obj);
-  if(cmd != orig){
-    var tp = obj.type;
-    if(tp->get_value != NULL){
-      tp->get_value(&obj, outdata);
-    }else{
-      printf("Unable to print type of '%s'\n", orig);
-    }
-  }else{
-    printf("Unable to parse %s\n", orig);
-  }
-}
-
-void icy_query_object(const char * cmd, icy_object * obj){
-  icy_parse_id2(NULL, &cmd, obj);
+  //rec call
+  icy_object obj = {0};
+  obj.type = icy_get_type(ctx->object_type_id);
+  icy_query2(&obj, cmd, outdata);
 }
 
 void print_object_tree(icy_object * thing){
@@ -289,8 +277,7 @@ void type_name(type_id type, const char * name){
 void icy_context_add_type(icy_context * ctx, icy_type * type){
   var idx = icy_types_alloc(ctx->types);
   type->type_id = idx.index;
-  ctx->types->type[idx.index] = *type;
-  printf("Loaded type: %i\n", type->type_id);
+  ctx->types->type[idx.index] = *type;  
 }
 
 
@@ -310,6 +297,7 @@ void double_try_parse(icy_object * obj, char ** str){
 }
 
 void double_get_value(icy_object * id, void * out){
+  printf("getting double value..\n");
   var parent = id->parent;
   void * ptr = parent->type->data(parent, NULL);
   memcpy(out, ptr, sizeof(double));
@@ -373,8 +361,7 @@ void object_sub_parse(icy_object *id, char * str, icy_object * out){
   if(cid == 0){
     var ctx2 = (object_context*) id->type->userdata;
     type_id subtype;
-    id_to_u64_try_get(ctx2->value_type, &id->id, &subtype);
-    if(subtype == id->type->type_id){
+    if(id_to_u64_try_get(ctx2->value_type, &id->id, &subtype) && subtype == id->type->type_id){
       size_t s = sizeof(u64);
       u64 * subobj_id = id->type->data(id,&s);
       if(*subobj_id != 0){
@@ -441,7 +428,24 @@ void object_sub_get(icy_object * obj, object_id id, icy_object * out){
   out->parent = obj->parent;
 }
 
-
+void object_try_parse_next(icy_object * owner, icy_object * obj, const char * str2){
+  icy_object next;
+  const char * orig = str2;
+  icy_parse(obj, &str2, &next);
+  if(orig != str2){
+    object_try_parse_next(owner, &next, str2);
+    return;
+  }
+  if(owner->type == obj->type){
+    var ctx2 = (object_context *) owner->type->userdata;
+    id_to_u64_set(ctx2->value_type, owner->id, owner->type->type_id);
+    size_t size = sizeof(obj->id);
+    void * p = owner->type->data(owner, &size);
+    memcpy(p, &(obj->id), size);
+  }else{
+    ERROR("Unable to translate type");
+  }
+}
 
 void object_try_parse(icy_object * obj, char ** str){
   var ctx2 = (object_context *) obj->type->userdata;
@@ -457,27 +461,21 @@ void object_try_parse(icy_object * obj, char ** str){
     if(tp->try_parse == NULL) continue;
     sub.type = tp;
     tp->try_parse(&sub, (char **)&cmd);
+
     if(cmd2 != cmd){
+      printf("setting type.. %i\n", sub.id);
       id_to_u64_set(ctx2->value_type, obj->id, tp->type_id);
       *str = cmd;
+      
       return;
     }
   }
 
   icy_object out;
-  icy_parse_id2(NULL, (const char **) &cmd, &out);
-  if(*cmd != *cmd2){
-     if(out.type == obj->type){
-      id_to_u64_set(ctx2->value_type, obj->id, out.type->type_id);
-      size_t size = sizeof(obj->id);
-      void * p = obj->type->data(obj, &size);
-      memcpy(p, &out.id, size);
-    }else{
-      ERROR("Unable to translate type");
-    }
-    return;
-  }
-  
+  out.id = 0;
+  out.type = icy_get_type(ctx->object_type_id);
+  out.parent = NULL;
+  object_try_parse_next(obj, &out, *str);
 }
 
 void object_print(icy_object * obj){
@@ -536,8 +534,11 @@ void * object_data(icy_object * obj, size_t * size){
 void object_get_value(icy_object * obj, void * out){
   var ctx2 = (object_context *) obj->type->userdata;
   type_id type = 0;
-  if(id_to_u64_try_get(ctx2->value_type, &obj->id, &type) == false)
+  if(id_to_u64_try_get(ctx2->value_type, &obj->id, &type) == false){
+    ERROR("This should not happen");
+    //printf("no object type..\n");
     return;
+  }
   var tp = ctx->types->type + type;
   if(tp->get_value != NULL){
     icy_object obj2 = {.parent = obj,
@@ -552,7 +553,7 @@ void object_load_type(icy_context * ctx){
     .ctx = ctx,
     .value_type = id_to_u64_create(NULL)
   };
-  printf("load ctx: %i\n", ctx);
+
   object_context * octx = IRON_CLONE(ctx2);
   icy_type type =
     {
@@ -572,7 +573,7 @@ void object_load_type(icy_context * ctx){
 }
 
 void type_print(icy_object * obj){
-  icy_context * ctx = obj->type->userdata;;
+  //icy_context * ctx = obj->type->userdata;;
   u64 nameid;
 
   if(u64_to_u64_try_get(ctx->type_name, &obj->id, &nameid)){
@@ -581,7 +582,7 @@ void type_print(icy_object * obj){
     intern_string_read(ctx->stable, nameid, buf, l);
     printf("%s", buf);
   }else{
-    printf("[type]");
+    printf("[type(%i)]",obj->type->type_id);
   }
 }
 
@@ -640,6 +641,8 @@ type_id types_load_type(icy_context * ctx, type_id type_type_id){
   
   icy_context_add_type(ctx, &type);
   type_name(type.type_id, "types");
+  printf("Loading: %i\n", type_type_id);
+  
   return type.type_id;
 }
 
@@ -681,11 +684,18 @@ icy_context * icy_context_initialize(){
   type_id types_type =  types_load_type(ctx, type_type);
   double_load_type(ctx);
 
-  icy_object obj;
-  icy_parse_id3(NULL, "/typer", &obj);
-  icy_parse_id3(NULL, "/type", &obj);
+  icy_eval("/typer");
+  icy_eval("/type");
 
-  id_to_u64_set(ctx->object_type, obj.id, types_type);
+  void f2(icy_object * obj, const char * restcmd, void * _){
+    UNUSED(_);
+    UNUSED(restcmd);
+    id_to_u64_set(ctx->object_type, obj->id, types_type);    
+  }
+  
+  icy_obj_action("/typer",f2, NULL);
+  
+
 
   return ctx;
 }

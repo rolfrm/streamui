@@ -77,22 +77,28 @@ void test_hashing(){
 void test_eval(){
 
   icy_eval("/style/array");
-  icy_object obj;
-  icy_query_object("/style/array", &obj);  
+  
+  //icy_object obj;
+  //icy_query_object("/style/array", &obj);  
   
   icy_eval("/style/button/width 15.0");
-
+  //return;
   icy_eval("/style/button/height 30.0");
+  double height;
+  icy_query("/style/button/height", &height);
+  printf("H: %f\n", height);
   icy_eval("/style/button/name 1337");
   icy_eval("/style/button/width 35.0");
   
   //id_to_id_print(subnodes);
   //id_to_u64_print(node_name);
-
   icy_eval("/button1 /style/button");
-  double height;
   
+  icy_query("/style/button/height", &height);
+  printf("H: %f\n", height);
+  ASSERT(height == 30.0);
   icy_query("/button1/height", &height);
+  printf("HEIGHT: %f\n", height);
   ASSERT(height == 30.0);
   icy_eval("/style/button/height 35.0");
   icy_query("/button1/height", &height);
@@ -125,6 +131,6 @@ void run_tests(){
   test_hashing();
   test_string_intern();
   test_eval();
-  print_scope();
+  //print_scope();
   printf("done test\n");
 }
